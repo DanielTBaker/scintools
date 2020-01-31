@@ -1,6 +1,8 @@
 import numpy as np
 import astropy.units as u
 from scipy.sparse.linalg import eigsh
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 
 def chi_par(x,A,x0,C):
     """Parabola for fitting to chisq curve."""
@@ -110,10 +112,6 @@ def rev_map(thth,tau,fd,eta,edges):
     recov=np.nan_to_num(recov)
     return(recov.T)
 
-def len_arc(x,eta):
-    a=2*eta
-    return((a*x*np.sqrt((a*x)**2 + 1) +np.arcsinh(a*x))/(2.*a))
-
 def modeler(SS, tau, fd, eta, edges):
     return()
 
@@ -140,6 +138,7 @@ def len_arc(x,eta):
     return((a*x*np.sqrt((a*x)**2 + 1) +np.arcsinh(a*x))/(2.*a))
 
 def arc_edges(eta,dfd,dtau,fd_max,n):
+    x_max=fd_max/dfd
     eta_ul=dfd**2*eta/dtau
     l_max=len_arc(x_max.value,eta_ul.value)
     dl=l_max/(n//2 - .5)
@@ -174,6 +173,7 @@ def sample_plot(dspec,
                 freq,
                 fd,
                 tau,
+		edges,
                 fdm,
                 taum,
                 eta_fit=0,
@@ -187,7 +187,7 @@ def sample_plot(dspec,
     SS_ext = ext_find(fd, tau)
     dspec_ext = ext_find(time.to(u.min), freq)
     SS_min = np.median(np.abs(SS)**2)
-    SS_max = np.max(np.abs(2 * recov)**2) * np.exp(-3)
+    SS_max = np.max(np.abs(2 * thth2)**2) * np.exp(-3)
 
     ##Compare model to data in plots
     grid = plt.GridSpec(4, 2, wspace=0.4, hspace=0.3)
@@ -273,11 +273,11 @@ def sample_plot(dspec,
     plt.subplot(grid[3, :])
     plt.plot(etas, chisq)
     if not err_str == None:
-        plt.plot(etas_fit,
-                 THTH.chi_par(etas_fit.value, *popt),
-                 label=r'%s $\pm$ %s $s^3$' % (fit_string, err_string))
+        plt.axvline(eta_fit.value,label=r'%s $\pm$ %s $s^3$' % (fit_str, err_str))
+    elif eta_fit>0:
+        plt.axvline(eta_fit.value)
     plt.xlabel(r'$\eta$ ($s^3$)')
     plt.ylabel(r'$\chi^2$')
-    plt.title('Curvature Search (Amplitude)')
+    plt.title('Curvature Search')
     plt.legend()
 
