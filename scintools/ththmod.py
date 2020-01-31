@@ -1,6 +1,8 @@
 import numpy as np
 import astropy.units as u
 from scipy.sparse.linalg import eigsh
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 
 def chi_par(x,A,x0,C):
     """Parabola for fitting to chisq curve."""
@@ -110,32 +112,10 @@ def rev_map(thth,tau,fd,eta,edges):
     recov=np.nan_to_num(recov)
     return(recov.T)
 
+def modeler(SS, tau, fd, eta, edges):
+    return()
+
 def chisq_calc(SS, tau, fd, eta, edges,mask,N):
-    """Calculate chisq of model SS using a 1d screen of given curvature
-
-    Arguments:
-    SS -- Secondary Spectrum in [tau,fd] order with (0,0) in center
-    tau -- Time lags in ascending order
-    fd -- doppler frequency in ascending order
-    eta -- curvature with the units of tau and fd
-    edges -- 1d numpy array with the edges of the theta bins (symmetric about 0)
-    mask -- boolian array showing with points in SS to fit
-    N -- Variance of each point in SS
-    """
-
-    ## Find reduced thth
-    thth_red,edges_red=thth_redmap(SS, tau, fd, eta, edges)
-    w,V=eigsh(thth_red,1)
-    w=w[0]
-    V=V[:,0]
-    ##Use larges eigenvector/value as model
-    thth2_red=np.outer(V,np.conjugate(V))
-    thth2_red*=np.abs(w)
-    thth2_red[thth_red==0]=0
-    ##Invert model thth
-    SS_rev=rev_map(thth2_red,tau,fd,eta,edges_red)
-    ##Compare to data
-    chisq=np.sum(((np.abs(SS_rev-SS)**2)/N)[mask])
     return(chisq)
 
 def G_revmap(w,V,eta,edges,tau,fd):
@@ -152,4 +132,152 @@ def G_revmap(w,V,eta,edges,tau,fd):
     SS_G[tau_map[pnts],fd_map[pnts]]=screen[pnts]
     G=np.fft.ifft2(np.fft.ifftshift(SS_G))
     return(G)
+
+def len_arc(x,eta):
+    a=2*eta
+    return((a*x*np.sqrt((a*x)**2 + 1) +np.arcsinh(a*x))/(2.*a))
+
+def arc_edges(eta,dfd,dtau,fd_max,n):
+    x_max=fd_max/dfd
+    eta_ul=dfd**2*eta/dtau
+    l_max=len_arc(x_max.value,eta_ul.value)
+    dl=l_max/(n//2 - .5)
+    x=np.zeros(int(n//2))
+    x[0]=dl/2
+    for i in range(x.shape[0]-1):
+        x[i+1]=x[i]+dl/(np.sqrt(1+(2*eta_ul*x[i])**2))
+    edges=np.concatenate((-x[::-1],x))*dfd.value
+    return(edges) 
+
+def ext_find(x, y):
+    dx = np.diff(x).mean()
+    dy = np.diff(y).mean()
+    ext = [(x[0] - dx / 2).value, (x[-1] + dx / 2).value,
+           (y[0] - dy / 2).value, (y[-1] + dy / 2).value]
+    return (ext)
+
+def fft_axis(x, unit, pad=1):
+    fx = np.fft.fftshift(
+        np.fft.fftfreq(pad * x.shape[0], x[1] - x[0]).to_value(unit)) * unit
+    return (fx)
+
+def sample_plot(dspec,
+                SS,
+                thth,
+                thth2,
+                SS2,
+                dspec2,
+                etas,
+                chisq,
+                time,
+                freq,
+                fd,
+                tau,
+		edges,
+                fdm,
+                taum,
+                eta_fit=0,
+                fit_str=None,
+                err_str=None):
+    if eta_fit == 0:
+        eta_fit = etas[chisq == chisq.min()].mean()
+    eta_low = etas.min()
+    eta_high = etas.max()
+    ##Plotting variables
+    SS_ext = ext_find(fd, tau)
+    dspec_ext = ext_find(time.to(u.min), freq)
+    SS_min = np.median(np.abs(SS)**2)
+    SS_max = np.max(np.abs(2 * thth2)**2) * np.exp(-3)
+
+    ##Compare model to data in plots
+    grid = plt.GridSpec(4, 2, wspace=0.4, hspace=0.3)
+    plt.figure(figsize=(8, 16))
+    plt.subplot(grid[0, 0])
+    plt.imshow(dspec,
+               aspect='auto',
+               origin='lower',
+               extent=dspec_ext,
+               vmin=-dspec.std(),
+               vmax=4*dspec.std())
+    plt.title('Dynamic Spectrum')
+    plt.xlabel('Time (min)')
+    plt.ylabel('Freq (MHz)')
+    plt.subplot(grid[0, 1])
+    plt.imshow(dspec2,
+               aspect='auto',
+               origin='lower',
+               extent=dspec_ext,
+               vmin=-dspec.std(),
+               vmax=4*dspec.std())
+    plt.title('Dynamic Spectrum Model')
+    plt.xlabel('Time (min)')
+    plt.ylabel('Freq (MHz)')
+    plt.subplot(grid[1, 0])
+    plt.imshow(np.abs(SS)**2,
+               norm=LogNorm(),
+               aspect='auto',
+               origin='lower',
+               extent=SS_ext,
+               vmin=SS_min,
+               vmax=SS_max)
+    plt.xlim((-fdm, fdm))
+    plt.ylim((0, taum))
+    plt.plot(fd, eta_low * (fd**2), 'k')
+    plt.plot(fd, eta_high * (fd**2), 'k')
+    plt.plot(fd, eta_fit * (fd**2), 'r')
+    plt.title('Secondary Spectrum')
+    plt.xlabel(r'$f_D$ (mHz)')
+    plt.ylabel(r'$\tau$ (us)')
+    plt.subplot(grid[1, 1])
+    plt.imshow(np.abs(2 * SS2)**2,
+               norm=LogNorm(),
+               aspect='auto',
+               origin='lower',
+               extent=SS_ext,
+               vmin=SS_min,
+               vmax=SS_max)
+    plt.xlim((-fdm, fdm))
+    plt.ylim((0, taum))
+    plt.plot(fd, etas.min() * (fd**2), 'k')
+    plt.plot(fd, etas.max() * (fd**2), 'k')
+    plt.plot(fd, eta_fit * (fd**2), 'r')
+    plt.title('Secondary Spectrum Model')
+    plt.xlabel(r'$f_D$ (mHz)')
+    plt.ylabel(r'$\tau$ (us)')
+
+    thth_min = np.median(np.abs(thth)) / 10
+    thth_max = np.max(np.abs(thth))
+
+    plt.subplot(grid[2, 0])
+    plt.imshow(np.abs(thth),
+               norm=LogNorm(),
+               aspect='auto',
+               origin='lower',
+               extent=[edges[0], edges[-1], edges[0], edges[-1]],
+               vmin=thth_min,
+               vmax=thth_max)
+    plt.title(r'$\theta-\theta$')
+    plt.xlabel(r'$\theta_1$')
+    plt.ylabel(r'$\theta_2$')
+    plt.subplot(grid[2, 1])
+    plt.imshow(np.abs(thth2),
+               norm=LogNorm(),
+               aspect='auto',
+               origin='lower',
+               extent=[edges[0], edges[-1], edges[0], edges[-1]],
+               vmin=thth_min,
+               vmax=thth_max)
+    plt.title(r'$\theta-\theta$')
+    plt.xlabel(r'$\theta_1$')
+    plt.ylabel(r'$\theta_2$')
+    plt.subplot(grid[3, :])
+    plt.plot(etas, chisq)
+    if not err_str == None:
+        plt.axvline(eta_fit.value,label=r'%s $\pm$ %s $s^3$' % (fit_str, err_str))
+    elif eta_fit>0:
+        plt.axvline(eta_fit.value)
+    plt.xlabel(r'$\eta$ ($s^3$)')
+    plt.ylabel(r'$\chi^2$')
+    plt.title('Curvature Search')
+    plt.legend()
 
