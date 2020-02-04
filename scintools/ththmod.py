@@ -112,7 +112,11 @@ def rev_map(thth,tau,fd,eta,edges):
     recov=np.nan_to_num(recov)
     return(recov.T)
 
-def modeler(SS, tau, fd, eta, edges):
+def modeler(SS, tau, fd, eta, edges,fd2=None,tau2=None):
+    if fd2==None:
+        fd2=fd
+    if tau2==None
+        tau2=tau
     thth_red,edges_red=thth_redmap(SS, tau, fd, eta, edges)
     ##Find first eigenvector and value
     w,V=eigsh(thth_red,1)
@@ -122,12 +126,12 @@ def modeler(SS, tau, fd, eta, edges):
     thth2_red=np.outer(V,np.conjugate(V))
     thth2_red*=np.abs(w)
     ##Map back to SS for high
-    recov=rev_map(thth2_red,tau,fd,eta,edges_red)
+    recov=rev_map(thth2_red,tau2,fd2,eta,edges_red)
     model=2*np.fft.ifft2(np.fft.ifftshift(recov)).real
     return(thth_red,thth2_red,recov,model,edges_red)
 
-def chisq_calc(dspec,SS, tau, fd, eta, edges,mask,N):
-    model=modeler(SS, tau, fd, eta, edges)[3][:dspec.shape[0],:dspec.shape[1]]
+def chisq_calc(dspec,SS, tau, fd, eta, edges,mask,N,fd2=None,tau2=None):
+    model=modeler(SS, tau, fd, eta, edges,fd2,tau2)[3][:dspec.shape[0],:dspec.shape[1]]
     chisq=np.sum((model-dspec)[mask]**2)/N
     return(chisq)
 
