@@ -4,6 +4,14 @@ from scipy.sparse.linalg import eigsh
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 
+def svd_model(arr, nmodes=1):
+    u, s, w = np.linalg.svd(arr)
+    s[nmodes:] = 0
+    S = np.zeros(([len(u), len(w)]), np.complex128)
+    S[:len(s), :len(s)] = np.diag(s)
+    model = np.dot(np.dot(u, S), w)
+    return (model)
+
 def chi_par(x,A,x0,C):
     """Parabola for fitting to chisq curve."""
     return(A*(x-x0)**2+C)
@@ -112,7 +120,11 @@ def rev_map(thth,tau,fd,eta,edges):
     recov=np.nan_to_num(recov)
     return(recov.T)
 
-def modeler(SS, tau, fd, eta, edges):
+def modeler(SS, tau, fd, eta, edges,fd2=None,tau2=None):
+    if fd2==None:
+        fd2=fd
+    if tau2==None:
+        tau2=tau
     thth_red,edges_red=thth_redmap(SS, tau, fd, eta, edges)
     ##Find first eigenvector and value
     w,V=eigsh(thth_red,1)
@@ -122,12 +134,13 @@ def modeler(SS, tau, fd, eta, edges):
     thth2_red=np.outer(V,np.conjugate(V))
     thth2_red*=np.abs(w)
     ##Map back to SS for high
-    recov=rev_map(thth2_red,tau,fd,eta,edges_red)
+#    thth2_red[thth_red==0]=0
+    recov=rev_map(thth2_red,tau2,fd2,eta,edges_red)
     model=2*np.fft.ifft2(np.fft.ifftshift(recov)).real
     return(thth_red,thth2_red,recov,model,edges_red)
 
-def chisq_calc(dspec,SS, tau, fd, eta, edges,mask,N):
-    model=modeler(SS, tau, fd, eta, edges)[3][:dspec.shape[0],:dspec.shape[1]]
+def chisq_calc(dspec,SS, tau, fd, eta, edges,mask,N,fd2=None,tau2=None):
+    model=modeler(SS, tau, fd, eta, edges,fd2,tau2)[3][:dspec.shape[0],:dspec.shape[1]]
     chisq=np.sum((model-dspec)[mask]**2)/N
     return(chisq)
 
@@ -210,8 +223,8 @@ def sample_plot(dspec,
                aspect='auto',
                origin='lower',
                extent=dspec_ext,
-               vmin=-dspec.std(),
-               vmax=4*dspec.std())
+               vmin=0,
+               vmax=1)
     plt.title('Dynamic Spectrum')
     plt.xlabel('Time (min)')
     plt.ylabel('Freq (MHz)')
@@ -220,8 +233,8 @@ def sample_plot(dspec,
                aspect='auto',
                origin='lower',
                extent=dspec_ext,
-               vmin=-dspec.std(),
-               vmax=4*dspec.std())
+               vmin=0,
+               vmax=1)
     plt.title('Dynamic Spectrum Model')
     plt.xlabel('Time (min)')
     plt.ylabel('Freq (MHz)')
