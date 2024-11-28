@@ -142,7 +142,7 @@ class Dynspec:
         return Dynspec(dyn=newdyn, verbose=False, process=False)
 
     def load_file(self, filename, verbose=True, process=False, lamsteps=False,
-                  remove_short_subs=True, subint_thresh=2.33, mjd=None):
+                  remove_short_subs=True, subint_thresh=2.33, mjd=None, time_unit = u.s, freq_unit = u.MHz):
         """
         Load a dynamic spectrum from psrflux-format file
 
@@ -186,14 +186,14 @@ class Dynspec:
         self.header = head
         rawdata = np.loadtxt(filename).transpose()  # read file
         # time since obs start (secs)
-        self.times = np.unique(rawdata[2]*60)  # Leading edge of integration
+        self.times = np.unique(rawdata[2]*60)*time_unit  # Leading edge of integration
         # Adjust MJD and times to start at 0
         if mjd is not None:
             self.mjd = mjd
         else:
-            self.mjd = self.mjd + self.times[0] / 86400
+            self.mjd = self.mjd + self.times[0].to_value(u.day)
         self.times = self.times - self.times[0]  # start at 0
-        self.freqs = rawdata[3]  # Observing frequency in MHz.
+        self.freqs = rawdata[3]*freq_unit  # Observing frequency in MHz.
         fluxes = rawdata[4]  # fluxes
         self.nchan = int(np.max(rawdata[1])) + 1  # number of channels
         self.bw = self.freqs[-1] - self.freqs[0]  # obs bw
@@ -807,7 +807,7 @@ class Dynspec:
             if lamsteps:
                 xedges = centres_to_edges(xplot)
                 betaedges = centres_to_edges(self.beta[:ind])
-                plt.pcolormesh(xedges, betaedges, sspec[:ind, :],
+                plt.pcolormesh(xedges.value, betaedges.value, sspec[:ind, :],
                                vmin=vmin, vmax=vmax, linewidth=0,
                                rasterized=True, shading='auto')
                 plt.ylabel(r'$f_\lambda$ (m$^{-1}$)')
@@ -969,7 +969,7 @@ class Dynspec:
 
     def fit_arc(self, asymm=False, plot=False, delmax=None, numsteps=1e4,
                 startbin=3, cutmid=3, lamsteps=False, etamax=None, etamin=None,
-                low_power_diff=-1, high_power_diff=-0.5, ref_freq=1400,
+                low_power_diff=-1, high_power_diff=-0.5, ref_freq=1400*u.MHz,
                 constraint=[0, np.inf], nsmooth=5, efac=1, filename=None,
                 noise_error=True, display=True, figN=None, log_parabola=False,
                 logsteps=False, plot_spec=False, fit_spectrum=False,
@@ -1117,12 +1117,12 @@ class Dynspec:
 
         try:
             len(etamin)
-            etamin_array = np.array(etamin).squeeze()
-            etamax_array = np.array(etamax).squeeze()
+            etamin_array = np.array(etamin.value).squeeze()*etamin.unit
+            etamax_array = np.array(etamax.value).squeeze()*etamin.unit
         except TypeError:
             # Force to be arrays for iteration
-            etamin_array = np.array([etamin])
-            etamax_array = np.array([etamax])
+            etamin_array = np.array([etamin.value])*etamin.unit
+            etamax_array = np.array([etamax.value])*etamin.unit
 
         # At 1mHz for 1400MHz obs, the maximum arc terminates at delmax
         max_sqrt_eta = np.sqrt(np.max(etamax_array))
@@ -1139,12 +1139,11 @@ class Dynspec:
                 etamax = etamax_array.squeeze()[iarc]
 
             if not lamsteps:
-                c = 299792458.0  # m/s
-                beta_to_eta = c*1e6/((ref_freq*10**6)**2)
+                beta_to_eta = const.c/((ref_freq)**2)
                 etamax = etamax/(self.freq/ref_freq)**2  # correct for freq
-                etamax = etamax*beta_to_eta
+                etamax = (etamax*beta_to_eta).to(u.s**3)
                 etamin = etamin/(self.freq/ref_freq)**2
-                etamin = etamin*beta_to_eta
+                etamin = (etamin*beta_to_eta).to(u.s**3)
                 constraint = constraint/(self.freq/ref_freq)**2
                 constraint = constraint*beta_to_eta
 
@@ -1303,9 +1302,9 @@ class Dynspec:
                             self.etaerr2_right = etaerr2 / np.sqrt(2)
                     else:
                         if lamsteps:
-                            self.betaeta = eta
-                            self.betaetaerr = etaerr / np.sqrt(2)
-                            self.betaetaerr2 = etaerr2 / np.sqrt(2)
+                            self.betaeta = eta.to((1/u.m)/(u.mHz**2))
+                            self.betaetaerr = etaerr.to((1/u.m)/(u.mHz**2)) / np.sqrt(2)
+                            self.betaetaerr2 = etaerr2.to((1/u.m)/(u.mHz**2)) / np.sqrt(2)
                         else:
                             self.eta = eta
                             self.etaerr = etaerr / np.sqrt(2)
@@ -1441,15 +1440,15 @@ class Dynspec:
             self.fref = thth.unit_checks(
                 kwargs['fref'], 'reference frequency', u.MHz)
         else:
-            self.fref = self.freqs.mean()*u.MHz
+            self.fref = self.freqs.mean()
 
-        fd = thth.fft_axis(self.times[:self.cwt]*u.s, u.mHz)
-        tau = thth.fft_axis(self.freqs[:self.cwf]*u.MHz, u.us)
+        fd = thth.fft_axis(self.times[:self.cwt], u.mHz)
+        tau = thth.fft_axis(self.freqs[:self.cwf], u.us)
 
         self.eta_min = (4*(tau[1]-tau[0])/fd.max()**2).to(u.s**3)
         self.eta_max = (tau.max()/(fd[1]-fd[0])**2).to(u.s**3)
-        self.eta_min *= (self.freqs.max()/self.fref.value)**2
-        self.eta_max *= (self.freqs.min()/self.fref.value)**2
+        self.eta_min *= (self.freqs.max()/self.fref)**2
+        self.eta_max *= (self.freqs.min()/self.fref)**2
         if 'eta_min' in kwargs.keys():
             eta_min = thth.unit_checks(kwargs['eta_min'], 'eta_min', u.s**3)
             self.eta_min = max((eta_min, self.eta_min))
@@ -1464,10 +1463,9 @@ class Dynspec:
                              etamax=((self.eta_max*self.fref**2).to(u.s) /
                                      const.c).to_value(1/(u.m*u.mHz**2)),
                              delmax=delmax, plot=verbose)
-            eta_hough = ((const.c*self.betaeta/(u.m*u.mHz**2)) /
+            eta_hough = ((const.c*self.betaeta) /
                          self.fref**2).to(u.s**3)
-            err_hough = ((const.c*2*max((self.betaetaerr, self.betaetaerr2)) /
-                          (u.m*u.mHz**2)) / self.fref**2).to(u.s**3)
+            err_hough = ((const.c*2*max((self.betaetaerr, self.betaetaerr2))) / self.fref**2).to(u.s**3)
         if not ('eta_min' in kwargs.keys()):
             self.eta_min = max((self.eta_min, eta_hough-err_hough))
         if not ('eta_max' in kwargs.keys()):
@@ -1479,9 +1477,9 @@ class Dynspec:
         self.neta = int(1 + (l1-l0)/np.log10(1+self.fw/10))
 
         if self.thetatheta_proc=='thin':
-            fd_cut = (fd.max())*(self.fref.value/self.freqs.max())
+            fd_cut = (fd.max())*(self.fref/self.freqs.max())
         else:
-            fd_cut = (fd.max()/2)*(self.fref.value/self.freqs.max())
+            fd_cut = (fd.max()/2)*(self.fref/self.freqs.max())
         if 'edges_lim' in kwargs.keys():
             edges_lim = min(
                 (thth.unit_checks(kwargs['edges_lim'], 'edges limit', u.mHz),
@@ -1499,9 +1497,9 @@ class Dynspec:
                 'edges', u.mHz)
         else:
             self.edges = thth.min_edges(edges_lim, fd, tau,
-                                        self.eta_max*(self.fref.value /
+                                        self.eta_max*(self.fref /
                                                       self.freqs.min()), 2
-                                        )*(self.freqs.min()/self.fref.value)
+                                        )*(self.freqs.min()/self.fref)
 
         if self.thetatheta_proc == 'thin':
             if 'arclet_lim' in kwargs.keys():
@@ -1564,8 +1562,8 @@ class Dynspec:
         fs = slice(cf*self.cwf, (cf+1)*self.cwf)
         ts = slice(ct*self.cwt, (ct+1)*self.cwt)
 
-        time2 = self.times[ts]*u.s
-        freq2 = self.freqs[fs]*u.MHz
+        time2 = self.times[ts]
+        freq2 = self.freqs[fs]
 
         tau = thth.fft_axis(freq2, u.us, self.npad)
         fd = thth.fft_axis(time2, u.mHz, self.npad)
@@ -1681,14 +1679,14 @@ class Dynspec:
             pars = list()
         for cf in range(self.ncf_fit):
             fs = slice(cf*self.cwf, (cf+1)*self.cwf)
-            freq2 = np.copy(self.freqs[fs])*u.MHz
+            freq2 = np.copy(self.freqs[fs])
             self.f0s[cf] = freq2.mean()
             etas = np.logspace(np.log10(self.eta_min.value), np.log10(
                 self.eta_max.value),
                 self.neta)*u.s**3*(self.fref/freq2.mean())**2
             for ct in range(self.nct_fit):
                 ts = slice(ct*self.cwt, (ct+1)*self.cwt)
-                time2 = np.copy(self.times[ts])*u.s
+                time2 = np.copy(self.times[ts])
                 dspec2 = np.copy(self.dyn[fs, ts])
                 dspec2 -= np.nanmean(dspec2)
                 dspec2 = np.nan_to_num(dspec2)
@@ -1794,12 +1792,12 @@ class Dynspec:
             pars = list()
         for cf in range(self.ncf_ret):
             fs = slice(cf*(self.cwf//2), cf*(self.cwf//2)+self.cwf)
-            freq2 = np.copy(self.freqs[fs])*u.MHz
+            freq2 = np.copy(self.freqs[fs])
             freq = freq2.mean()
             eta = self.ththeta*(self.fref/freq)**2
             for ct in range(self.nct_ret):
                 ts = slice(ct*(self.cwt//2), ct*(self.cwt//2)+self.cwt)
-                time2 = np.copy(self.times[ts])*u.s
+                time2 = np.copy(self.times[ts])
                 dspec2 = np.copy(self.dyn[fs, ts])
                 dspec2 -= np.nanmean(dspec2)
                 dspec2 = np.nan_to_num(dspec2)
@@ -1872,7 +1870,7 @@ class Dynspec:
         posdspec = np.isfinite(self.dyn[:self.wavefield.shape[0],
                                         :self.wavefield.shape[1]]) * (
             self.dyn[:self.wavefield.shape[0], :self.wavefield.shape[1]] > 0)
-        tau = thth.fft_axis(self.freqs[:self.wavefield.shape[0]]*u.MHz, u.us)
+        tau = thth.fft_axis(self.freqs[:self.wavefield.shape[0]], u.us)
         self.wavefield *= \
             np.sqrt(self.dyn[:self.wavefield.shape[0],
                              :self.wavefield.shape[1]][posdspec].mean() /
@@ -1898,12 +1896,12 @@ class Dynspec:
             pars = list()
         for cf in range(self.ncf_fit):
             fs = slice(cf*self.cwf, (cf+1)*self.cwf)
-            freq2 = np.copy(self.freqs[fs])*u.MHz
+            freq2 = np.copy(self.freqs[fs])
             freq = freq2.mean()
             eta = self.ththeta*(self.fref/freq)**2
             for ct in range(self.nct_fit):
                 ts = slice(ct*self.cwt//2, (ct+1)*self.cwt)
-                time2 = np.copy(self.times[ts])*u.s
+                time2 = np.copy(self.times[ts])
                 dspec2 = np.copy(self.dyn[fs, ts])
                 dspec2 -= np.nanmean(dspec2)
                 dspec2 = np.nan_to_num(dspec2)
@@ -1920,7 +1918,7 @@ class Dynspec:
 
     def norm_sspec(self, eta=None, delmax=None, plot=False, startbin=1,
                    maxnormfac=5, minnormfac=0, cutmid=0, lamsteps=True,
-                   scrunched=True, plot_fit=True, ref_freq=1400,
+                   scrunched=True, plot_fit=True, ref_freq=1400*u.MHz,
                    velocity=False, numsteps=None,  filename=None, display=True,
                    weighted=True, unscrunched=True, logsteps=False,
                    powerspec=True, interp_nan=False, fit_spectrum=False,
@@ -2032,10 +2030,10 @@ class Dynspec:
                 eta = self.eta
         else:  # convert to beta
             if not lamsteps:
-                c = 299792458.0  # m/s
-                beta_to_eta = c*1e6/((ref_freq*10**6)**2)
+                # c = 299792458.0  # m/s
+                beta_to_eta = const.c/(ref_freq**2)
                 eta = eta/(self.freq/ref_freq)**2  # correct for frequency
-                eta = eta*beta_to_eta
+                eta = (eta*beta_to_eta).to(u.s**3)
 
         # set levels for plotting
         medval = np.median(sspec[is_valid(sspec)*np.array(np.abs(sspec) > 0)])
@@ -2135,7 +2133,7 @@ class Dynspec:
 
         # Initial guesses:
         alpha = -11/3
-        index = np.argmin(np.abs(xdata - 10))
+        index = np.argmin(np.abs(xdata - 10*xdata.unit))
         amp = ydata[index] * xdata[index]**-alpha
         wn = np.min(ydata)
         if fit_spectrum:
@@ -3413,7 +3411,7 @@ class Dynspec:
 
     def calc_scattered_image(self, input_sspec=None, input_eta=None,
                              input_fdop=None, input_tdel=None, sampling=64,
-                             lamsteps=False, trap=False, ref_freq=1400,
+                             lamsteps=False, trap=False, ref_freq=1400*u.MHz,
                              clean=True, s=None, veff=None, d=None,
                              fit_arc=True, plot_fit=False, plot=False,
                              plot_log=True, use_angle=False,
@@ -3499,11 +3497,10 @@ class Dynspec:
                 self.fit_arc(lamsteps=lamsteps,
                              log_parabola=True, plot=plot_fit)
             if lamsteps:
-                c = 299792458.0  # m/s
-                beta_to_eta = c * 1e6 / ((ref_freq * 1e6)**2)
+                beta_to_eta = const.c / (ref_freq**2)
                 # correct for freq
                 eta = self.betaeta / (self.freq / ref_freq)**2
-                eta = eta*beta_to_eta
+                eta = (eta*beta_to_eta).to(u.s**3)
                 eta = eta
             else:
                 eta = self.eta
@@ -3695,7 +3692,7 @@ class Dynspec:
         else:
             td = np.array(list(range(0, int(nrfft))))
         fd = np.array(list(range(int(-ncfft/2), int(ncfft/2))))
-        fdop = np.reshape(np.multiply(fd, 1e3/(ncfft*self.dt)),
+        fdop = np.reshape(np.multiply(fd, 1/(ncfft*self.dt)),
                           [len(fd)])  # in mHz
         tdel = np.reshape(np.divide(td, (nrfft*self.df)),
                           [len(td)])  # in us
@@ -3933,7 +3930,7 @@ class Dynspec:
             arin = cp(self.dyn)  # input array
             nf, nt = np.shape(arin)
             freqs = cp(self.freqs)
-            lams = np.divide(sc.c, freqs*10**6)
+            lams = np.divide(const.c, freqs).to(u.m)
             if spacing == 'max':
                 dlam = np.max(np.abs(np.diff(lams)))
             elif spacing == 'median':
@@ -3944,9 +3941,9 @@ class Dynspec:
                 dlam = np.min(np.abs(np.diff(lams)))
             elif spacing == 'auto':
                 dlam = (np.max(lams) - np.min(lams))/len(freqs)
-            lam_eq = np.arange(np.min(lams)+1e-10, np.max(lams)-1e-10, dlam)
+            lam_eq = np.arange(np.min(lams).value+1e-10, np.max(lams).value-1e-10, dlam.value)*lams.unit
             self.dlam = dlam
-            feq = np.round(np.divide(sc.c, lam_eq)/10**6, 6)
+            feq = np.round(np.divide(const.c, lam_eq).to(u.MHz), 6)
             arout = np.zeros([len(lam_eq), int(nt)])
             for it in range(0, nt):
                 f = interp1d(freqs, arin[:, it], kind='cubic')
@@ -4198,14 +4195,20 @@ class BasicDyn():
             raise ValueError('must input array of times and frequencies')
         self.name = name
         self.header = header
-        self.times = times  # times should be the start times of each bin
-        self.freqs = freqs
+        if hasattr(times,'unit'):
+            self.times = times
+        else:
+            self.times = thth.unit_checks(times,'times', u.s)  # times should be the start times of each bin
+        if hasattr(freqs,'unit'):
+            self.freqs=freqs
+        else:
+            self.freqs = thth.unit_checks(freqs,'freqs', u.MHz)
         self.nchan = nchan if nchan is not None else len(freqs)
         self.nsub = nsub if nsub is not None else len(times)
-        self.bw = bw if bw is not None else np.ptp(freqs)
-        self.df = df if df is not None else np.mean(np.abs(np.diff(freqs)))
-        self.freq = freq if freq is not None else np.mean(np.unique(freqs))
-        self.dt = dt if dt is not None else np.mean(np.abs(np.diff(times)))
+        self.bw = thth.unit_checks(bw,'df',self.freqs.unit) if bw is not None else np.ptp(freqs)
+        self.df = thth.unit_checks(df,'df',self.freqs.unit) if df is not None else np.mean(np.abs(np.diff(freqs)))
+        self.freq = thth.unit_checks(freq,'freq',self.freqs.unit) if freq is not None else np.mean(np.unique(freqs))
+        self.dt = thth.unit_checks(dt,'dt',self.times.unit) if dt is not None else np.mean(np.abs(np.diff(times)))
         self.tobs = tobs if tobs is not None else np.ptp(times) + dt
         self.mjd = mjd
         self.dyn = dyn
