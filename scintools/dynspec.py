@@ -111,9 +111,9 @@ class Dynspec:
         dt = self.dt
 
         # Calculate properties for the gap
-        timegap = round((other.mjd - self.mjd)*86400
-                        - self.tobs, 1)  # time between two dynspecs
-        extratimes = np.arange(0, timegap, dt)
+        timegap = round((other.mjd*u.day - self.mjd*u.day).to_value(self.tobs.unit)
+                        - self.tobs.value, 1)*self.tobs.unit  # time between two dynspecs
+        extratimes = np.arange(0, timegap.to_value(dt.unit), dt.value)*dt.unit
         if timegap < dt:
             extratimes = [0]
             nextra = 0
@@ -197,8 +197,8 @@ class Dynspec:
         fluxes = rawdata[4]  # fluxes
         self.nchan = int(np.max(rawdata[1])) + 1  # number of channels
         self.bw = self.freqs[-1] - self.freqs[0]  # obs bw
-        self.df = round(self.bw/self.nchan, 5)  # channel bw
-        self.bw = round(self.bw + self.df, 2)  # correct bw
+        self.df = round(self.bw.value/self.nchan, 5)*self.bw.unit  # channel bw
+        self.bw = round(self.bw.value + self.df.value, 2)*self.df.unit  # correct bw
         self.nsub = int(np.max(rawdata[0])) + 1  # number of subints
 
         # initial estimate of tobs and dt
@@ -207,7 +207,7 @@ class Dynspec:
 
         # Now reshape flux arrays into a 2D matrix
         self.freqs = np.unique(self.freqs)
-        self.freq = round(np.mean(self.freqs), 2)
+        self.freq = round(np.mean(self.freqs.value), 2)*self.freqs.unit
         fluxes = fluxes.reshape([self.nsub, self.nchan]).transpose()
         if self.df < 0:  # flip things
             self.df = -self.df
@@ -250,11 +250,11 @@ class Dynspec:
             dt = np.mean(np.abs(np.diff(self.times))[1:])
             sdt = np.std(np.abs(np.diff(self.times))[1:])
 
-        self.mjd += np.min(self.times)/86400
+        self.mjd += np.min(self.times.to_value(u.day))
         self.times -= np.min(self.times)  # start at 0
         self.nsub = len(self.times)
-        self.dt = round(np.mean(np.diff(self.times)), 3)
-        self.tobs = round(max(self.times) + self.dt, 3)
+        self.dt = round(np.mean(np.diff(self.times)).value, 3)*self.times.unit
+        self.tobs = round(max(self.times).value + self.dt.value, 3)*self.times.unit
 
     def trim_edges(self, bandwagon_frac=0.5, remove_short_sub=True):
         """
@@ -317,14 +317,14 @@ class Dynspec:
                 self.dyn[:, -1] = np.zeros(np.shape(self.dyn[:, -1]))
             colsum = sum(abs(self.dyn[:, -1]))
 
-        self.mjd += np.min(self.times)/86400
+        self.mjd += np.min(self.times.to_value(u.day))
         self.times -= np.min(self.times)  # start at 0
         self.nchan = len(self.freqs)
-        self.bw = round(max(self.freqs) - min(self.freqs) + self.df, 3)
-        self.freq = round(np.mean(self.freqs), 3)
+        self.bw = round(max(self.freqs).value - min(self.freqs).value + self.df.value, 3)*self.df.unit
+        self.freq = round(np.mean(self.freqs).value, 3)*self.freqs.unit
         self.nsub = len(self.times)
-        self.dt = round(np.mean(np.diff(self.times)), 3)
-        self.tobs = round(max(self.times) + self.dt, 3)
+        self.dt = round(np.mean(np.diff(self.times)).value, 3)*self.times.unit
+        self.tobs = round(max(self.times).value + self.dt.value, 3)*self.times.unit
         self.df = self.bw / self.nchan
 
     def write_file(self, filename=None, verbose=True, note=None):
@@ -513,14 +513,14 @@ class Dynspec:
             if lamsteps:
                 tedges = centres_to_edges(self.times/60)
                 lamedges = centres_to_edges(self.lam)
-                plt.pcolormesh(tedges, lamedges, dyn,
+                plt.pcolormesh(tedges.value, lamedges.value, dyn,
                                vmin=vmin, vmax=vmax, linewidth=0,
                                rasterized=True, shading='auto')
                 plt.ylabel('Wavelength (m)')
             else:
-                tedges = centres_to_edges(self.times/60)
+                tedges = centres_to_edges(self.times.to(u.min))
                 fedges = centres_to_edges(self.freqs)
-                plt.pcolormesh(tedges, fedges, dyn,
+                plt.pcolormesh(tedges.value, fedges.value, dyn,
                                vmin=vmin, vmax=vmax, linewidth=0,
                                rasterized=True, shading='auto')
                 plt.ylabel('Frequency (MHz)')
@@ -653,30 +653,30 @@ class Dynspec:
 
             fig, ax1 = plt.subplots(figsize=figsize)
             if contour:
-                ax1.contourf(t_delays, f_shifts, arr)
+                ax1.contourf(t_delays.value, f_shifts.value, arr)
             else:
-                ax1.pcolormesh(t_delays, f_shifts, arr, linewidth=0,
+                ax1.pcolormesh(t_delays.value, f_shifts.value, arr, linewidth=0,
                                rasterized=True, shading='auto')
             ax1.set_ylabel(r'Frequency shift, $\Delta\nu$ (MHz)')
             ax1.set_xlabel(r'Time lag, $\tau$ (mins)')
             miny, maxy = ax1.get_ylim()
             if hasattr(self, 'tau'):
                 ax2 = ax1.twinx()
-                ax2.set_ylim(miny/self.dnu, maxy/self.dnu)
+                ax2.set_ylim((miny/self.dnu).value,( maxy/self.dnu).value)
                 ax2.set_ylabel(r'$\Delta\nu$ / ($\Delta\nu_d = {0}\,$MHz)'.
-                               format(round(self.dnu, 2)))
+                               format(round(self.dnu.to_value(u.MHz), 2)))
                 ax3 = ax1.twiny()
                 minx, maxx = ax1.get_xlim()
-                ax3.set_xlim(minx/(self.tau/60), maxx/(self.tau/60))
+                ax3.set_xlim((minx/(self.tau.to(u.min))).value, (maxx/(self.tau.to(u.min))).value)
                 ax3.set_xlabel(r'$\tau$/($\tau_d={0}\,$min)'.format(round(
-                    self.tau/60, 2)))
+                    self.tau.to_value(u.min), 2)))
         else:  # just plot acf without scales
             if contour:
-                plt.contourf(t_delays, f_shifts, arr)
+                plt.contourf(t_delays.value, f_shifts.value, arr)
             else:
                 tedges = centres_to_edges(t_delays)
                 fedges = centres_to_edges(f_shifts)
-                plt.pcolormesh(tedges, fedges, arr, linewidth=0,
+                plt.pcolormesh(tedges.value, fedges.value, arr, linewidth=0,
                                rasterized=True, shading='auto')
             plt.ylabel('Frequency lag (MHz)')
             plt.xlabel('Time lag (mins)')
@@ -805,22 +805,22 @@ class Dynspec:
             plt.figure(figsize=figsize)
         if input_sspec is None:
             if lamsteps:
-                xedges = centres_to_edges(xplot)
+                xedges = centres_to_edges(xplot.to(u.mHz))
                 betaedges = centres_to_edges(self.beta[:ind])
                 plt.pcolormesh(xedges.value, betaedges.value, sspec[:ind, :],
                                vmin=vmin, vmax=vmax, linewidth=0,
                                rasterized=True, shading='auto')
                 plt.ylabel(r'$f_\lambda$ (m$^{-1}$)')
             else:
-                xedges = centres_to_edges(xplot)
+                xedges = centres_to_edges(xplot.to(u.mHz))
                 tdeledges = centres_to_edges(self.tdel[:ind])
-                plt.pcolormesh(xedges, tdeledges, sspec[:ind, :],
+                plt.pcolormesh(xedges.value, tdeledges.value, sspec[:ind, :],
                                vmin=vmin, vmax=vmax, linewidth=0,
                                rasterized=True, shading='auto')
                 plt.ylabel(r'$f_\nu$ ($\mu$s)')
             if overplot_curvature is not None:
                 yl = plt.ylim()
-                plt.plot(xplot, overplot_curvature*xplot**2, 'r--')
+                plt.plot(xplot.to(u.mHz), overplot_curvature*xplot.to(u.mHz)**2, 'r--')
                 plt.ylim(yl)
             plt.xlabel(r'$f_t$ (mHz)')
             bottom, top = plt.ylim()
@@ -829,12 +829,12 @@ class Dynspec:
                     eta = self.betaeta
                 else:
                     eta = self.eta
-                plt.plot(xplot, eta*np.power(xplot, 2),
+                plt.plot(xplot.to(u.mHz), eta*np.power(xplot.to(u.mHz), 2),
                          'r--', alpha=0.5)
             plt.ylim(bottom, top)
 
         else:
-            xedges = centres_to_edges(xplot)
+            xedges = centres_to_edges(xplot.to(u.mHz))
             yedges = centres_to_edges(input_y)
             plt.pcolormesh(xedges, yedges, sspec, vmin=vmin, vmax=vmax,
                            linewidth=0, rasterized=True, shading='auto')
@@ -1109,7 +1109,6 @@ class Dynspec:
         # noise of mean out to delmax.
         noise = np.sqrt(np.sum(np.power(noise, 2)))/np.sqrt(len(yaxis)*2)
         self.noise = noise
-
         if etamax is None:
             etamax = ymax/((self.fdop[1]-self.fdop[0])*cutmid)**2
         if etamin is None:
@@ -1320,7 +1319,7 @@ class Dynspec:
                 plt.plot(self.eta_array[10:], self.norm_sspec_avg[10:])
                 plt.plot(etaArray[10:], norm_sspec_avg_filt[10:])
                 plt.plot(xdata, yfit, 'k')
-                plt.axvspan(xmin=eta-etaerr, xmax=eta+etaerr,
+                plt.axvspan(xmin=(eta-etaerr).value, xmax=(eta+etaerr).value,
                             facecolor='C2', alpha=0.5)
                 plt.xscale('log')
                 if lamsteps:
@@ -1457,11 +1456,12 @@ class Dynspec:
             self.eta_max = min((eta_max, self.eta_max))
         if not ('eta_min' in kwargs.keys() and 'eta_max' in kwargs.keys()):
             if not hasattr(self, "betaeta"):
+                print(((self.eta_max*self.fref**2).to(u.s) /const.c))
                 self.fit_arc(lamsteps=True, numsteps=1e4,
                              etamin=((self.eta_min*self.fref**2).to(u.s) /
-                                     const.c).to_value(1/(u.m*u.mHz**2)),
+                                     const.c).to(1/(u.m*u.mHz**2)),
                              etamax=((self.eta_max*self.fref**2).to(u.s) /
-                                     const.c).to_value(1/(u.m*u.mHz**2)),
+                                     const.c).to(1/(u.m*u.mHz**2)),
                              delmax=delmax, plot=verbose)
             eta_hough = ((const.c*self.betaeta) /
                          self.fref**2).to(u.s**3)
@@ -2163,7 +2163,7 @@ class Dynspec:
         # Now define weights for the normalised spectrum sum
         arc_spectrum = amp*xdata**alpha
         if weighted:
-            self.weights = 10*np.log10(arc_spectrum)
+            self.weights = 10*np.log10(arc_spectrum.value)
         else:
             self.weights = np.ones(np.shape(arc_spectrum))
 
@@ -2215,7 +2215,7 @@ class Dynspec:
                 np.ma.set_fill_value(normSspec, np.nan)
                 fdopedges = centres_to_edges(fdopnew)
                 tdeledges = centres_to_edges(tdel)
-                plt.pcolormesh(fdopedges, tdeledges, np.ma.filled(normSspec),
+                plt.pcolormesh(fdopedges, tdeledges.value, np.ma.filled(normSspec),
                                vmin=vmin, vmax=vmax, linewidth=0,
                                rasterized=True, shading='auto')
                 if lamsteps:
@@ -2961,8 +2961,8 @@ class Dynspec:
                 print(" ")
 
         # Done fitting - now define results
-        self.tau = results.params['tau'].value
-        self.dnu = results.params['dnu'].value
+        self.tau = results.params['tau']
+        self.dnu = results.params['dnu']
         self.tscat = 1/(2*np.pi*self.dnu)  # scattering timescale
         if self.dnu < self.df:
             print("Warning: Scint bandwidth < channel bandwidth.")
